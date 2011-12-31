@@ -1,0 +1,21 @@
+Luna Luminance
+==============
+
+Introduction
+------------
+
+This is a puzzle game. The goal is to make a 3x3 block of one color.
+
+Playing
+-------
+
+Left click to rotate rows and right click to invert column colors to
+make a 3x3 block of one color.
+
+Currently, the game does not end when the blocks hit the top of the
+screen.
+
+Controls
+--------
+left click   rotate a row
+right click  invert a column
