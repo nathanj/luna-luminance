@@ -149,24 +149,24 @@ int init()
 
 void load_files()
 {
-	black_image = load_image("black.png");
-	white_image = load_image("white.png");
+	black_image = load_image("assets/black.png");
+	white_image = load_image("assets/white.png");
 
-	black_to_white[0] = load_image("bw1.png");
-	black_to_white[1] = load_image("bw2.png");
-	black_to_white[2] = load_image("bw3.png");
-	black_to_white[3] = load_image("bw4.png");
+	black_to_white[0] = load_image("assets/bw1.png");
+	black_to_white[1] = load_image("assets/bw2.png");
+	black_to_white[2] = load_image("assets/bw3.png");
+	black_to_white[3] = load_image("assets/bw4.png");
 
-	black_scale[0] = load_image("black_particle1.png");
-	black_scale[1] = load_image("black_particle2.png");
-	black_scale[2] = load_image("black_particle3.png");
-	white_scale[0] = load_image("white_particle1.png");
-	white_scale[1] = load_image("white_particle2.png");
-	white_scale[2] = load_image("white_particle3.png");
+	black_scale[0] = load_image("assets/black_particle1.png");
+	black_scale[1] = load_image("assets/black_particle2.png");
+	black_scale[2] = load_image("assets/black_particle3.png");
+	white_scale[0] = load_image("assets/white_particle1.png");
+	white_scale[1] = load_image("assets/white_particle2.png");
+	white_scale[2] = load_image("assets/white_particle3.png");
 
-	background = load_image("space.png");
+	background = load_image("assets/space.png");
 
-	font = load_image("font.png");
+	font = load_image("assets/font.png");
 }
 
 void clean_up()
