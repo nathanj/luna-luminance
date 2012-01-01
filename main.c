@@ -108,45 +108,6 @@ void clean_up()
 	SDL_Quit();
 }
 
-int update(int ticks)
-{
-	(void)ticks;
-
-	if (moving_col != -1) {
-		if (vertical_rotation > 0) {
-			vertical_rotation += 1;
-		}
-
-		if (vertical_rotation > 120) {
-			vertical_rotation = 0;
-			moving_col = -1;
-			pieces_moving = 0;
-		}
-	}
-
-	if (moving_row != -1) {
-		if (horizontal_delta < 0) {
-			horizontal_delta += 1.0;
-		} else {
-			horizontal_delta = 0;
-			moving_row = -1;
-			pieces_moving = 0;
-		}
-	}
-
-	if (!pieces_moving) {
-		if (new_row_delta < 32) {
-			new_row_delta += 0.01;
-		} else if (new_row_delta > 32) {
-			add_new_row();
-		}
-	}
-
-	update_particles();
-
-	return 0;
-}
-
 static void draw_new_piece(int i, int dy, SDL_Surface *screen,
 			   SDL_Rect *clip)
 {
@@ -396,6 +357,9 @@ static int figure_out_completed()
 	int j;
 	int modified = 0;
 
+	if (pieces_moving)
+		return 0;
+
 	for (i = 1; i < BOARD_WIDTH - 1; i++) {
 		for (j = 1; j < BOARD_HEIGHT - 1; j++) {
 			modified |= figure_out_completed_space(i, j);
@@ -451,33 +415,34 @@ static void handle_gravity()
 	}
 }
 
-static void handle_falling_piece(int i, int j)
+static int handle_falling_piece(int i, int j)
 {
 	if (!(board[i][j] & FALLING))
-		return;
+		return 0;
 
 	if (board_fall_times[i][j] > 0) {
 		board_fall_times[i][j] -= 10;
-		pieces_moving = 1;
-		return;
+		return 1;
 	}
 
 	if (board_deltas[i][j] == 0) {
 		if (j == BOARD_HEIGHT - 1) {
 			board[i][j] &= ~FALLING;
 			board_deltas[i][j] = 0;
+			return 0;
 		} else if (board[i][j + 1] & EMPTY) {
 			board[i][j + 1] = board[i][j];
 			board[i][j] = EMPTY;
 			board_deltas[i][j + 1] = -32;
-			pieces_moving = 1;
+			return 1;
 		} else {
 			board[i][j] &= ~FALLING;
 			board_deltas[i][j] = 0;
+			return 0;
 		}
 	} else {
 		board_deltas[i][j] += FALL_SPEED;
-		pieces_moving = 1;
+		return 1;
 	}
 }
 
@@ -485,13 +450,16 @@ static void handle_falling()
 {
 	int i;
 	int j;
+	int falling = 0;
 
-	pieces_moving = 0;
 	for (i = BOARD_WIDTH - 1; i >= 0; i--) {
 		for (j = BOARD_HEIGHT - 1; j > 0; j--) {
-			handle_falling_piece(i, j);
+			falling |= handle_falling_piece(i, j);
 		}
 	}
+
+	if (pieces_moving)
+		pieces_moving = falling;
 }
 
 void print_fps(int frames, Uint32 start)
@@ -517,9 +485,6 @@ void handle_mouse(const SDL_Event *event)
 	} else if (event->button.button == SDL_BUTTON_LEFT) {
 		rotate_row((event->button.y + new_row_delta) / 32);
 	}
-
-	figure_out_completed();
-	handle_gravity();
 }
 
 void init_board()
@@ -549,6 +514,61 @@ void init_board()
 
 	for (i = 0; i < BOARD_WIDTH; i++)
 		new_row[i] = rand() % 2 ? WHITE : BLACK;
+}
+
+int update(int ticks, int frame)
+{
+	int prev_pieces_moving = pieces_moving;
+
+	(void)ticks;
+
+	if (frame % 10 == 0) {
+		handle_falling();
+	}
+
+	if (moving_col != -1) {
+		pieces_moving = 1;
+
+		if (vertical_rotation > 0) {
+			vertical_rotation += 1;
+		}
+
+		if (vertical_rotation > 120) {
+			vertical_rotation = 0;
+			moving_col = -1;
+			pieces_moving = 0;
+		}
+	}
+
+	if (moving_row != -1) {
+		pieces_moving = 1;
+
+		if (horizontal_delta < 0) {
+			horizontal_delta += 1.0;
+		} else {
+			horizontal_delta = 0;
+			moving_row = -1;
+			pieces_moving = 0;
+		}
+	}
+
+	if (prev_pieces_moving && !pieces_moving) {
+		while (figure_out_completed()) {
+			handle_gravity();
+		}
+	}
+
+	if (!pieces_moving) {
+		if (new_row_delta < 32) {
+			new_row_delta += 0.01;
+		} else if (new_row_delta > 32) {
+			add_new_row();
+		}
+	}
+
+	update_particles();
+
+	return 0;
 }
 
 int main(int argc, char **argv)
@@ -582,15 +602,7 @@ int main(int argc, char **argv)
 		ticks = this_tick - last_tick;
 		last_tick = this_tick;
 
-		frame++;
-		if (frame % 10 == 0) {
-			handle_falling();
-			while (figure_out_completed()) {
-				handle_gravity();
-			}
-		}
-
-		if (update(ticks) != 0) {
+		if (update(ticks, frame++) != 0) {
 			fprintf(stderr, "update failed\n");
 			return 1;
 		}
