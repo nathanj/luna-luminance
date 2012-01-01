@@ -1,40 +1,11 @@
-#include <errno.h>
-#include <assert.h>
-#include <math.h>
-
-#include "SDL.h"
-#include "SDL/SDL_image.h"
-
-#include "list.h"
+#include "game.h"
 
 const int SCREEN_WIDTH = 640;
 const int SCREEN_HEIGHT = 480;
 const int SCREEN_BPP = 32;
 
-SDL_Surface *background = NULL;
-SDL_Surface *black_image = NULL;
-SDL_Surface *black_to_white[4] = {NULL};
-SDL_Surface *black_scale[3] = {NULL};
-SDL_Surface *white_scale[3] = {NULL};
-SDL_Surface *white_image = NULL;
-SDL_Surface *cursor_image = NULL;
-SDL_Surface *screen = NULL;
+struct images images;
 
-SDL_Event event;
-
-SDL_Surface *font = NULL;
-
-enum spot {
-	EMPTY   = 0x01,
-	BLACK   = 0x02,
-	WHITE   = 0x04,
-
-	DESTROY = 0x10,
-	FALLING = 0x20,
-};
-
-#define BOARD_WIDTH 10
-#define BOARD_HEIGHT 15
 int board[BOARD_WIDTH][BOARD_HEIGHT];
 int board_fall_times[BOARD_WIDTH][BOARD_HEIGHT];
 int board_deltas[BOARD_WIDTH][BOARD_HEIGHT];
@@ -54,90 +25,38 @@ int cursor_y = 0;
 
 int score;
 
-struct particle {
-	float x, y, dx, dy;
-	SDL_Surface *image;
-	float t;
-	float decay;
-
-	struct list_head list;
-};
-
-LIST_HEAD(particle_list);
-
 #define HOLD_TIME 20
 #define FALL_SPEED 16
 
-struct particle *make_particle(float x, float y, float dx, float dy, enum spot spot)
+static void add_new_row()
 {
-	struct particle *particle;
+	int i, j;
 
-	particle = malloc(sizeof(*particle));
-	particle->x = x;
-	particle->y = y;
-	particle->dx = dx * (rand() % 10) / 20.0;
-	particle->dy = dy * (rand() % 10) / 20.0;
-
-	particle->image = ((spot & 0xFF) == WHITE) ? white_scale[0] : black_scale[0];
-	particle->t = 0;
-	particle->decay = (fabs(particle->dx) + fabs(particle->dy)) * 250;
-
-	return particle;
-}
-
-void generate_particle(float x, float y, float dx, float dy, enum spot spot)
-{
-	list_add_tail(&(make_particle(x, y, dx, dy, spot)->list), &particle_list);
-}
-
-SDL_Surface *load_image(const char *filename)
-{
-	SDL_Surface *loadedImage = NULL;
-	SDL_Surface *optimizedImage = NULL;
-
-	loadedImage = IMG_Load(filename);
-
-	if (loadedImage == NULL) {
-		fprintf(stderr, "Could not load %s: %s\n",
-			filename, strerror(errno));
-		assert(0);
+	for (i = 0; i < BOARD_WIDTH; i++) {
+		for (j = 0; j < BOARD_HEIGHT - 1; j++) {
+			board[i][j] = board[i][j + 1];
+		}
+		board[i][BOARD_HEIGHT - 1] = new_row[i];
+		new_row[i] = rand() % 2 ? WHITE : BLACK;
 	}
 
-	optimizedImage = SDL_DisplayFormatAlpha(loadedImage);
-	SDL_FreeSurface(loadedImage);
-
-	if (optimizedImage == NULL) {
-		fprintf(stderr, "Could not optimize image: %s\n",
-			filename);
-		assert(0);
-	}
-
-	return optimizedImage;
+	new_row_delta = 0;
 }
 
-void apply_surface(int x, int y, SDL_Surface *source,
-		   SDL_Surface *destination, SDL_Rect *clip)
+int init(SDL_Surface **screen)
 {
-	SDL_Rect offset;
+	assert(screen);
 
-	offset.x = x;
-	offset.y = y;
-
-	SDL_BlitSurface(source, clip, destination, &offset);
-}
-
-int init()
-{
-	if(SDL_Init(SDL_INIT_EVERYTHING) == -1) {
+	if (SDL_Init(SDL_INIT_EVERYTHING) == -1) {
 		fprintf(stderr, "SDL_Init failed.\n");
 		return 1;
 	}
 
-	screen = SDL_SetVideoMode(SCREEN_WIDTH, SCREEN_HEIGHT,
+	*screen = SDL_SetVideoMode(SCREEN_WIDTH, SCREEN_HEIGHT,
 				  SCREEN_BPP,
 				  SDL_SWSURFACE);
 
-	if(screen == NULL) {
+	if (*screen == NULL) {
 		fprintf(stderr, "SDL_SetVideoMode failed.\n");
 		return 1;
 	}
@@ -149,30 +68,42 @@ int init()
 
 void load_files()
 {
-	black_image = load_image("assets/black.png");
-	white_image = load_image("assets/white.png");
+	images.black_image = load_image("assets/black.png");
+	images.white_image = load_image("assets/white.png");
 
-	black_to_white[0] = load_image("assets/bw1.png");
-	black_to_white[1] = load_image("assets/bw2.png");
-	black_to_white[2] = load_image("assets/bw3.png");
-	black_to_white[3] = load_image("assets/bw4.png");
+	images.black_to_white[0] = load_image("assets/bw1.png");
+	images.black_to_white[1] = load_image("assets/bw2.png");
+	images.black_to_white[2] = load_image("assets/bw3.png");
+	images.black_to_white[3] = load_image("assets/bw4.png");
 
-	black_scale[0] = load_image("assets/black_particle1.png");
-	black_scale[1] = load_image("assets/black_particle2.png");
-	black_scale[2] = load_image("assets/black_particle3.png");
-	white_scale[0] = load_image("assets/white_particle1.png");
-	white_scale[1] = load_image("assets/white_particle2.png");
-	white_scale[2] = load_image("assets/white_particle3.png");
+	images.black_scale[0] = load_image("assets/black_particle1.png");
+	images.black_scale[1] = load_image("assets/black_particle2.png");
+	images.black_scale[2] = load_image("assets/black_particle3.png");
+	images.white_scale[0] = load_image("assets/white_particle1.png");
+	images.white_scale[1] = load_image("assets/white_particle2.png");
+	images.white_scale[2] = load_image("assets/white_particle3.png");
 
-	background = load_image("assets/space.png");
+	images.background = load_image("assets/space.png");
 
-	font = load_image("assets/font.png");
+	images.font = load_image("assets/font.png");
 }
 
 void clean_up()
 {
-	SDL_FreeSurface(white_image);
-	SDL_FreeSurface(black_image);
+	SDL_FreeSurface(images.white_image);
+	SDL_FreeSurface(images.black_image);
+	SDL_FreeSurface(images.black_to_white[0]);
+	SDL_FreeSurface(images.black_to_white[1]);
+	SDL_FreeSurface(images.black_to_white[2]);
+	SDL_FreeSurface(images.black_to_white[3]);
+	SDL_FreeSurface(images.black_scale[0]);
+	SDL_FreeSurface(images.black_scale[1]);
+	SDL_FreeSurface(images.black_scale[2]);
+	SDL_FreeSurface(images.white_scale[0]);
+	SDL_FreeSurface(images.white_scale[1]);
+	SDL_FreeSurface(images.white_scale[2]);
+	SDL_FreeSurface(images.background);
+	SDL_FreeSurface(images.font);
 
 	SDL_Quit();
 }
@@ -180,22 +111,54 @@ void clean_up()
 int update(int ticks)
 {
 	(void)ticks;
-	//sprite_update(&sprite, ticks);
+
+	if (moving_col != -1) {
+		if (vertical_rotation > 0) {
+			vertical_rotation += 1;
+		}
+
+		if (vertical_rotation > 120) {
+			vertical_rotation = 0;
+			moving_col = -1;
+			pieces_moving = 0;
+		}
+	}
+
+	if (moving_row != -1) {
+		if (horizontal_delta < 0) {
+			horizontal_delta += 1.0;
+		} else {
+			horizontal_delta = 0;
+			moving_row = -1;
+			pieces_moving = 0;
+		}
+	}
+
+	if (!pieces_moving) {
+		if (new_row_delta < 32) {
+			new_row_delta += 0.01;
+		} else if (new_row_delta > 32) {
+			add_new_row();
+		}
+	}
+
+	update_particles();
 
 	return 0;
 }
 
-static void draw_new_piece(int i, int dy, SDL_Rect *clip)
+static void draw_new_piece(int i, int dy, SDL_Surface *screen,
+			   SDL_Rect *clip)
 {
 	switch (new_row[i] & 0x0F) {
 	case BLACK:
 		apply_surface(i * 32, 480 + dy,
-			      black_image, screen,
+			      images.black_image, screen,
 			      clip);
 		break;
 	case WHITE:
 		apply_surface(i * 32, 480 + dy,
-			      white_image, screen,
+			      images.white_image, screen,
 			      clip);
 		break;
 	default:
@@ -203,64 +166,47 @@ static void draw_new_piece(int i, int dy, SDL_Rect *clip)
 	}
 }
 
-static void draw_piece(int i, int j, int dx, int dy, SDL_Rect *clip)
+static void draw_piece(int i, int j, int dx, int dy, SDL_Surface *screen,
+		       SDL_Rect *clip)
 {
 	int rot = -1;
+	SDL_Surface *image = NULL;
+	int k;
 
 	if (moving_col == i)
 		rot = vertical_rotation;
 
 	switch (board[i][j] & 0x0F) {
 	case BLACK:
-		if (rot > 0 && rot <= 30)
-			apply_surface(i * 32 + dx, j * 32 + dy,
-				      black_to_white[3], screen,
-				      clip);
-		else if (rot > 30 && rot <= 60)
-			apply_surface(i * 32 + dx, j * 32 + dy,
-				      black_to_white[2], screen,
-				      clip);
-		else if (rot > 60 && rot <= 90)
-			apply_surface(i * 32 + dx, j * 32 + dy,
-				      black_to_white[1], screen,
-				      clip);
-		else if (rot > 90 && rot <= 120)
-			apply_surface(i * 32 + dx, j * 32 + dy,
-				      black_to_white[0], screen,
-				      clip);
-		else
-			apply_surface(i * 32 + dx, j * 32 + dy,
-				      black_image, screen,
-				      clip);
+		if (rot > 0) {
+			k = 3 - rot / 30;
+			if (k < 0)
+				k = 0;
+			image = images.black_to_white[k];
+		} else {
+			image = images.black_image;
+		}
 		break;
 	case WHITE:
-		if (rot > 0 && rot <= 30)
-			apply_surface(i * 32 + dx, j * 32 + dy,
-				      black_to_white[0], screen,
-				      clip);
-		else if (rot > 30 && rot <= 60)
-			apply_surface(i * 32 + dx, j * 32 + dy,
-				      black_to_white[1], screen,
-				      clip);
-		else if (rot > 60 && rot <= 90)
-			apply_surface(i * 32 + dx, j * 32 + dy,
-				      black_to_white[2], screen,
-				      clip);
-		else if (rot > 90 && rot <= 120)
-			apply_surface(i * 32 + dx, j * 32 + dy,
-				      black_to_white[3], screen,
-				      clip);
-		else
-			apply_surface(i * 32 + dx, j * 32 + dy,
-				      white_image, screen,
-				      clip);
+		if (rot > 0) {
+			k = rot / 30;
+			if (k > 3)
+				k = 3;
+			image = images.black_to_white[k];
+		} else {
+			image = images.white_image;
+		}
 		break;
 	default:
 		break;
 	}
+
+	if (image)
+		apply_surface(i * 32 + dx, j * 32 + dy,
+			      image, screen, clip);
 }
 
-static void draw_board()
+static void draw_board(SDL_Surface *screen)
 {
 	int i;
 	int j;
@@ -285,14 +231,14 @@ static void draw_board()
 
 			if (dx != 0 && i == 0) {
 				clip.w = 32;
-				draw_piece(i, j, dx, dy, &clip);
+				draw_piece(i, j, dx, dy, screen, &clip);
 
 				clip.w = -dx;
 				dx += 10 * 32;
-				draw_piece(i, j, dx, dy, &clip);
+				draw_piece(i, j, dx, dy, screen, &clip);
 			} else {
 				clip.w = 32;
-				draw_piece(i, j, dx, dy, &clip);
+				draw_piece(i, j, dx, dy, screen, &clip);
 			}
 		}
 	}
@@ -302,49 +248,11 @@ static void draw_board()
 	dy = -new_row_delta;
 
 	for (i = 0; i < BOARD_WIDTH; i++) {
-		draw_new_piece(i, dy, &clip);
+		draw_new_piece(i, dy, screen, &clip);
 	}
 }
 
-void draw_particles()
-{
-	struct particle *p;
-
-	list_for_each_entry(p, &particle_list, list) {
-		apply_surface(p->x, p->y,
-			      p->image, screen,
-			      NULL);
-	}
-}
-
-void update_particles()
-{
-	struct particle *p, *n;
-
-	list_for_each_entry_safe(p, n, &particle_list, list) {
-		p->t++;
-		p->x += p->dx;
-		p->y += p->dy;
-
-
-		if (p->t > p->decay && p->t <= p->decay*2) {
-			if (p->image == white_scale[0])
-				p->image = white_scale[1];
-			if (p->image == black_scale[0])
-				p->image = black_scale[1];
-		} else if (p->t > p->decay*2 && p->t <= p->decay*3) {
-			if (p->image == white_scale[1])
-				p->image = white_scale[2];
-			if (p->image == black_scale[1])
-				p->image = black_scale[2];
-		} else if (p->t > p->decay*3) {
-			list_del(&p->list);
-			free(p);
-		}
-	}
-}
-
-void draw_score()
+void draw_score(SDL_Surface *screen)
 {
 	int s = score;
 	int c;
@@ -357,7 +265,7 @@ void draw_score()
 
 	if (s == 0) {
 		clip.x = 0;
-		apply_surface(x, 100, font, screen, &clip);
+		apply_surface(x, 100, images.font, screen, &clip);
 		return;
 	}
 
@@ -365,62 +273,25 @@ void draw_score()
 		c = s % 10;
 		s /= 10;
 		clip.x = c * 32;
-		apply_surface(x, 100, font, screen, &clip);
+		apply_surface(x, 100, images.font, screen, &clip);
 		x -= 32;
 	}
 }
 
-int draw()
+int draw(SDL_Surface *screen)
 {
-	apply_surface(0, 0, background, screen, NULL);
+	apply_surface(0, 0, images.background, screen, NULL);
 
-	draw_board();
-	draw_particles();
-	draw_score();
+	draw_board(screen);
+	draw_particles(screen);
+	draw_score(screen);
 
-	if(SDL_Flip(screen) == -1) {
+	if (SDL_Flip(screen) == -1) {
 		fprintf(stderr, "SDL_Flip failed.\n");
 		return 1;
 	}
 
 	return 0;
-}
-
-static void print_board()
-{
-	int i;
-	int j;
-
-	for (j = 0; j < BOARD_HEIGHT; j++) {
-		for (i = 0; i < BOARD_WIDTH; i++) {
-			switch (board[i][j] & 0xF0) {
-			case FALLING:
-				printf("F");
-				break;
-			case DESTROY:
-				printf("D");
-				break;
-			default:
-				printf(" ");
-				break;
-			}
-			switch (board[i][j] & 0x0F) {
-			case EMPTY:
-				printf(" ");
-				break;
-			case BLACK:
-				printf("B");
-				break;
-			case WHITE:
-				printf("W");
-				break;
-			default:
-				printf("X");
-				break;
-			}
-		}
-		printf("\n");
-	}
 }
 
 static void rotate_row(int row)
@@ -635,42 +506,25 @@ void print_fps(int frames, Uint32 start)
 	printf("FPS: %u (%u)\n", fps, SDL_GetTicks());
 }
 
-static void add_new_row()
+void handle_mouse(const SDL_Event *event)
 {
-	int i, j;
+	/* User cannot do anything while board in motion. */
+	if (pieces_moving)
+		return;
 
-	for (i = 0; i < BOARD_WIDTH; i++) {
-		for (j = 0; j < BOARD_HEIGHT - 1; j++) {
-			board[i][j] = board[i][j + 1];
-		}
-		board[i][BOARD_HEIGHT - 1] = new_row[i];
-		new_row[i] = rand() % 2 ? WHITE : BLACK;
+	if (event->button.button == SDL_BUTTON_RIGHT) {
+		invert_column(event->button.x / 32);
+	} else if (event->button.button == SDL_BUTTON_LEFT) {
+		rotate_row((event->button.y + new_row_delta) / 32);
 	}
 
-	new_row_delta = 0;
+	figure_out_completed();
+	handle_gravity();
 }
 
-int main(int argc, char **argv)
+void init_board()
 {
-	int quit = 0;
-	Uint32 start = 0;
-	int frames = 0;
-	int last_tick = 0;
-	int this_tick = 0;
-	int ticks = 0;
-	int i;
-	int j;
-	int frame = 0;
-
-	(void) argc;
-	(void) argv;
-
-	if(init() != 0) {
-		fprintf(stderr, "init failed.\n");
-		return 1;
-	}
-
-	load_files();
+	int i, j;
 
 	memset(board_fall_times, 0, sizeof(board_fall_times));
 	memset(board_deltas, 0, sizeof(board_deltas));
@@ -695,9 +549,30 @@ int main(int argc, char **argv)
 
 	for (i = 0; i < BOARD_WIDTH; i++)
 		new_row[i] = rand() % 2 ? WHITE : BLACK;
+}
 
-	print_board();
-	//rotate_row(BOARD_HEIGHT - 3);
+int main(int argc, char **argv)
+{
+	int quit = 0;
+	Uint32 start = 0;
+	int frames = 0;
+	int last_tick = 0;
+	int this_tick = 0;
+	int ticks = 0;
+	int frame = 0;
+	SDL_Surface *screen;
+	SDL_Event event;
+
+	(void) argc;
+	(void) argv;
+
+	if (init(&screen) != 0) {
+		fprintf(stderr, "init failed.\n");
+		return 1;
+	}
+
+	load_files();
+	init_board();
 
 	start = SDL_GetTicks();
 	last_tick = start;
@@ -720,61 +595,22 @@ int main(int argc, char **argv)
 			return 1;
 		}
 
-		if (draw() != 0) {
+		if (draw(screen) != 0) {
 			fprintf(stderr, "draw failed\n");
 			return 1;
 		}
 
-		if (moving_col != -1) {
-			if (vertical_rotation > 0) {
-				vertical_rotation += 1;
-			} else if (vertical_rotation > 120) {
-				vertical_rotation = 0;
-				moving_col = -1;
-				pieces_moving = 0;
-			}
-		}
-
-		if (moving_row != -1) {
-			if (horizontal_delta < 0) {
-				horizontal_delta += 1.0;
-			} else {
-				horizontal_delta = 0;
-				moving_row = -1;
-				pieces_moving = 0;
-			}
-		}
-
-		if (!pieces_moving) {
-			if (new_row_delta < 32) {
-				new_row_delta += 0.01;
-			} else if (new_row_delta > 32) {
-				add_new_row();
-			}
-		}
-
-		update_particles();
-
 		while (SDL_PollEvent(&event)) {
-			if (event.type == SDL_MOUSEBUTTONUP) {
-				if (!pieces_moving) {
-					printf("click at %d %d\n", event.button.x / 32, event.button.y / 32);
-					if (event.button.button == SDL_BUTTON_RIGHT) {
-						invert_column(event.button.x / 32);
-					} else if (event.button.button == SDL_BUTTON_LEFT) {
-						rotate_row((event.button.y + new_row_delta) / 32);
-					}
-
-					figure_out_completed();
-					handle_gravity();
-				}
-			}
 
 			switch (event.type) {
 			case SDL_QUIT:
 				quit = 1;
 				break;
+			case SDL_MOUSEBUTTONUP:
+				handle_mouse(&event);
+				break;
 			case SDL_KEYDOWN:
+			case SDL_KEYUP:
 				switch (event.key.keysym.sym) {
 				case SDLK_q:
 					quit = 1;
