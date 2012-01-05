@@ -10,13 +10,13 @@ struct particle *make_particle(float x, float y, float dx, float dy,
 	particle = malloc(sizeof(*particle));
 	particle->x = x;
 	particle->y = y;
-	particle->dx = dx * (rand() % 10) / 20.0;
-	particle->dy = dy * (rand() % 10) / 20.0;
+	particle->dx = dx * 32 * 15 * (rand() % 10) / 20.0;
+	particle->dy = dy * 32 * 15 * (rand() % 10) / 20.0;
 
 	particle->image = ((spot & 0xFF) == WHITE)
 		? images.white_scale[0] : images.black_scale[0];
 	particle->t = 0;
-	particle->decay = (fabs(particle->dx) + fabs(particle->dy)) * 250;
+	particle->decay = (fabs(particle->dx) + fabs(particle->dy)) * 0.001;
 
 	return particle;
 }
@@ -39,14 +39,14 @@ void draw_particles(SDL_Surface *screen)
 	}
 }
 
-void update_particles()
+void update_particles(float dt)
 {
 	struct particle *p, *n;
 
 	list_for_each_entry_safe(p, n, &particle_list, list) {
-		p->t++;
-		p->x += p->dx;
-		p->y += p->dy;
+		p->t += dt;
+		p->x += p->dx * dt;
+		p->y += p->dy * dt;
 
 
 		if (p->t > p->decay && p->t <= p->decay*2) {

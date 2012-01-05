@@ -51,4 +51,4 @@ struct particle *make_particle(float x, float y, float dx, float dy,
 void generate_particle(float x, float y, float dx, float dy,
 		       enum spot spot);
 void draw_particles(SDL_Surface *screen);
-void update_particles();
+void update_particles(float dt);

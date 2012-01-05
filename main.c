@@ -7,8 +7,8 @@ const int SCREEN_BPP = 32;
 struct images images;
 
 int board[BOARD_WIDTH][BOARD_HEIGHT];
-int board_fall_times[BOARD_WIDTH][BOARD_HEIGHT];
-int board_deltas[BOARD_WIDTH][BOARD_HEIGHT];
+float board_fall_times[BOARD_WIDTH][BOARD_HEIGHT];
+float board_deltas[BOARD_WIDTH][BOARD_HEIGHT];
 
 int pieces_moving;
 
@@ -25,8 +25,9 @@ int cursor_y = 0;
 
 int score;
 
-#define HOLD_TIME 20
-#define FALL_SPEED 16
+/* TODO: hold time should only apply to matched pieces */
+#define HOLD_TIME 0
+#define FALL_SPEED (16*18)
 
 static void add_new_row()
 {
@@ -108,7 +109,7 @@ void clean_up()
 	SDL_Quit();
 }
 
-static void draw_new_piece(int i, int dy, SDL_Surface *screen,
+static void draw_new_piece(int i, float dy, SDL_Surface *screen,
 			   SDL_Rect *clip)
 {
 	switch (new_row[i] & 0x0F) {
@@ -127,15 +128,15 @@ static void draw_new_piece(int i, int dy, SDL_Surface *screen,
 	}
 }
 
-static void draw_piece(int i, int j, int dx, int dy, SDL_Surface *screen,
-		       SDL_Rect *clip)
+static void draw_piece(int i, int j, float dx, float dy,
+		       SDL_Surface *screen, SDL_Rect *clip)
 {
 	int rot = -1;
 	SDL_Surface *image = NULL;
 	int k;
 
 	if (moving_col == i)
-		rot = vertical_rotation;
+		rot = (int) vertical_rotation;
 
 	switch (board[i][j] & 0x0F) {
 	case BLACK:
@@ -169,11 +170,9 @@ static void draw_piece(int i, int j, int dx, int dy, SDL_Surface *screen,
 
 static void draw_board(SDL_Surface *screen)
 {
-	int i;
-	int j;
+	int i, j;
+	float dx, dy;
 	SDL_Rect clip;
-	int dy;
-	int dx;
 
 	clip.x = 0;
 	clip.y = 0;
@@ -182,6 +181,7 @@ static void draw_board(SDL_Surface *screen)
 
 	for (j = 0; j < BOARD_HEIGHT; j++) {
 		for (i = 0; i < BOARD_WIDTH; i++) {
+
 			if (j == moving_row)
 				dx = horizontal_delta;
 			else
@@ -190,7 +190,7 @@ static void draw_board(SDL_Surface *screen)
 			dy = -new_row_delta;
 			dy += board_deltas[i][j];
 
-			if (dx != 0 && i == 0) {
+			if (dx < 0 && i == 0) {
 				clip.w = 32;
 				draw_piece(i, j, dx, dy, screen, &clip);
 
@@ -280,8 +280,6 @@ static void invert_column(int col)
 
 	assert(col >= 0);
 	assert(col < BOARD_WIDTH);
-
-	printf("col = %d\n", col);
 
 	for (i = 0; i < BOARD_HEIGHT; i++) {
 		if (board[col][i] == WHITE)
@@ -393,11 +391,11 @@ static void handle_gravity_for_piece(int i, int j)
 		return;
 
 	for (j2 = j; j2 > 0; j2--) {
-		if (!(board[i][j2] & EMPTY)) {
+		if (!(board[i][j2] & EMPTY)
+		    && !(board[i][j2] & FALLING)) {
 			board[i][j2] |= FALLING;
 			board_deltas[i][j2] = 0;
-			if (board_fall_times[i][j2] == 0)
-				board_fall_times[i][j2] = HOLD_TIME;
+			board_fall_times[i][j2] = HOLD_TIME;
 			pieces_moving = 1;
 		}
 	}
@@ -415,17 +413,18 @@ static void handle_gravity()
 	}
 }
 
-static int handle_falling_piece(int i, int j)
+/* Returns 1 if the piece is falling. */
+static int handle_falling_piece(int i, int j, float dt)
 {
 	if (!(board[i][j] & FALLING))
 		return 0;
 
 	if (board_fall_times[i][j] > 0) {
-		board_fall_times[i][j] -= 10;
+		board_fall_times[i][j] -= 10 * dt;
 		return 1;
 	}
 
-	if (board_deltas[i][j] == 0) {
+	if (board_deltas[i][j] > -0.10) {
 		if (j == BOARD_HEIGHT - 1) {
 			board[i][j] &= ~FALLING;
 			board_deltas[i][j] = 0;
@@ -434,6 +433,7 @@ static int handle_falling_piece(int i, int j)
 			board[i][j + 1] = board[i][j];
 			board[i][j] = EMPTY;
 			board_deltas[i][j + 1] = -32;
+			board_deltas[i][j] = 0;
 			return 1;
 		} else {
 			board[i][j] &= ~FALLING;
@@ -441,12 +441,14 @@ static int handle_falling_piece(int i, int j)
 			return 0;
 		}
 	} else {
-		board_deltas[i][j] += FALL_SPEED;
+		board_deltas[i][j] += FALL_SPEED * dt;
+		if (board_deltas[i][j] >= 0)
+			board_deltas[i][j] = 0;
 		return 1;
 	}
 }
 
-static void handle_falling()
+static void handle_falling(float dt)
 {
 	int i;
 	int j;
@@ -454,7 +456,7 @@ static void handle_falling()
 
 	for (i = BOARD_WIDTH - 1; i >= 0; i--) {
 		for (j = BOARD_HEIGHT - 1; j > 0; j--) {
-			falling |= handle_falling_piece(i, j);
+			falling |= handle_falling_piece(i, j, dt);
 		}
 	}
 
@@ -516,21 +518,17 @@ void init_board()
 		new_row[i] = rand() % 2 ? WHITE : BLACK;
 }
 
-int update(int ticks, int frame)
+void update(float dt)
 {
 	int prev_pieces_moving = pieces_moving;
 
-	(void)ticks;
-
-	if (frame % 10 == 0) {
-		handle_falling();
-	}
+	handle_falling(dt);
 
 	if (moving_col != -1) {
 		pieces_moving = 1;
 
 		if (vertical_rotation > 0) {
-			vertical_rotation += 1;
+			vertical_rotation += 32 * 12 * dt;
 		}
 
 		if (vertical_rotation > 120) {
@@ -544,7 +542,9 @@ int update(int ticks, int frame)
 		pieces_moving = 1;
 
 		if (horizontal_delta < 0) {
-			horizontal_delta += 1.0;
+			horizontal_delta += 32 * 5 * dt;
+			if (horizontal_delta >= 0)
+				horizontal_delta = 0;
 		} else {
 			horizontal_delta = 0;
 			moving_row = -1;
@@ -553,22 +553,19 @@ int update(int ticks, int frame)
 	}
 
 	if (prev_pieces_moving && !pieces_moving) {
-		while (figure_out_completed()) {
-			handle_gravity();
-		}
+		figure_out_completed();
+		handle_gravity();
 	}
 
 	if (!pieces_moving) {
 		if (new_row_delta < 32) {
-			new_row_delta += 0.01;
+			new_row_delta += 5 * dt;
 		} else if (new_row_delta > 32) {
 			add_new_row();
 		}
 	}
 
-	update_particles();
-
-	return 0;
+	update_particles(dt);
 }
 
 int main(int argc, char **argv)
@@ -579,9 +576,9 @@ int main(int argc, char **argv)
 	int last_tick = 0;
 	int this_tick = 0;
 	int ticks = 0;
-	int frame = 0;
 	SDL_Surface *screen;
 	SDL_Event event;
+	float dt;
 
 	(void) argc;
 	(void) argv;
@@ -602,10 +599,9 @@ int main(int argc, char **argv)
 		ticks = this_tick - last_tick;
 		last_tick = this_tick;
 
-		if (update(ticks, frame++) != 0) {
-			fprintf(stderr, "update failed\n");
-			return 1;
-		}
+		dt = ticks / 1000.0;
+
+		update(dt);
 
 		if (draw(screen) != 0) {
 			fprintf(stderr, "draw failed\n");
