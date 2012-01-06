@@ -25,8 +25,7 @@ int cursor_y = 0;
 
 int score;
 
-/* TODO: hold time should only apply to matched pieces */
-#define HOLD_TIME 0
+#define HOLD_TIME 2
 #define FALL_SPEED (16*18)
 
 static void add_new_row()
@@ -380,7 +379,7 @@ static int piece_above(int pi, int pj)
 	return 0;
 }
 
-static void handle_gravity_for_piece(int i, int j)
+static void handle_gravity_for_piece(int i, int j, float hold_time)
 {
 	int j2;
 
@@ -395,20 +394,20 @@ static void handle_gravity_for_piece(int i, int j)
 		    && !(board[i][j2] & FALLING)) {
 			board[i][j2] |= FALLING;
 			board_deltas[i][j2] = 0;
-			board_fall_times[i][j2] = HOLD_TIME;
+			board_fall_times[i][j2] = hold_time;
 			pieces_moving = 1;
 		}
 	}
 }
 
-static void handle_gravity()
+static void handle_gravity(float hold_time)
 {
 	int i;
 	int j;
 
 	for (i = BOARD_WIDTH - 1; i >= 0; i--) {
 		for (j = BOARD_HEIGHT - 1; j > 0; j--) {
-			handle_gravity_for_piece(i, j);
+			handle_gravity_for_piece(i, j, hold_time);
 		}
 	}
 }
@@ -553,8 +552,9 @@ void update(float dt)
 	}
 
 	if (prev_pieces_moving && !pieces_moving) {
+		handle_gravity(0);
 		figure_out_completed();
-		handle_gravity();
+		handle_gravity(HOLD_TIME);
 	}
 
 	if (!pieces_moving) {
