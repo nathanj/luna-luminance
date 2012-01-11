@@ -26,7 +26,7 @@ int cursor_y = 0;
 int score;
 
 #define HOLD_TIME 2
-#define FALL_SPEED (16*18)
+#define FALL_SPEED (16*25)
 
 static void add_new_row()
 {
@@ -527,7 +527,7 @@ void update(float dt)
 		pieces_moving = 1;
 
 		if (vertical_rotation > 0) {
-			vertical_rotation += 32 * 12 * dt;
+			vertical_rotation += 32 * 20 * dt;
 		}
 
 		if (vertical_rotation > 120) {
@@ -541,7 +541,7 @@ void update(float dt)
 		pieces_moving = 1;
 
 		if (horizontal_delta < 0) {
-			horizontal_delta += 32 * 5 * dt;
+			horizontal_delta += 32 * 10 * dt;
 			if (horizontal_delta >= 0)
 				horizontal_delta = 0;
 		} else {
